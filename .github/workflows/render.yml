@@ -1,0 +1,77 @@
+name: Render Satisfying Relaxation
+
+on:
+  workflow_dispatch:
+    inputs:
+      minutes:
+        description: "Durasi video (menit)"
+        default: "8"
+      height:
+        description: "Resolusi"
+        type: choice
+        default: "1080"
+        options: ["720", "1080", "1440"]
+      fps:
+        description: "FPS"
+        type: choice
+        default: "30"
+        options: ["24", "30", "60"]
+      seed:
+        description: "Seed (kosong = nomor run) -> variasi warna & nada"
+        default: ""
+      upload:
+        description: "Upload ke YouTube setelah render"
+        type: boolean
+        default: false
+      privacy:
+        description: "Privacy upload"
+        type: choice
+        default: private
+        options: [private, unlisted, public]
+  # schedule:                       # aktifkan kalau mau video baru otomatis tiap minggu
+  #   - cron: "0 1 * * 1"
+
+jobs:
+  render:
+    runs-on: ubuntu-latest
+    timeout-minutes: 180
+    env:
+      SR_MINUTES: ${{ inputs.minutes || '8' }}
+      SR_HEIGHT: ${{ inputs.height || '1080' }}
+      SR_FPS: ${{ inputs.fps || '30' }}
+      SR_SEED: ${{ inputs.seed || github.run_number }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+
+      - name: Install dependencies
+        run: |
+          sudo apt-get update -y
+          sudo apt-get install -y ffmpeg fonts-dejavu-core
+          pip install -r requirements.txt
+
+      - name: Render
+        run: python -m generator.render --out out --preset medium --crf 18
+
+      - name: Upload artifact (video + thumbnail + metadata)
+        uses: actions/upload-artifact@v4
+        with:
+          name: satisfying-relaxation-${{ github.run_number }}
+          path: out/
+          retention-days: 7
+          compression-level: 0
+
+      - name: Upload ke YouTube
+        if: ${{ inputs.upload }}
+        env:
+          YT_CLIENT_ID: ${{ secrets.YT_CLIENT_ID }}
+          YT_CLIENT_SECRET: ${{ secrets.YT_CLIENT_SECRET }}
+          YT_REFRESH_TOKEN: ${{ secrets.YT_REFRESH_TOKEN }}
+          YT_PRIVACY: ${{ inputs.privacy }}
+        run: |
+          pip install -r requirements-upload.txt
+          python -m generator.upload_youtube out
